@@ -1,5 +1,6 @@
 class UsersController < ApplicationController
   before_action :authenticate_request!, :only => [:update, :show]
+  wrap_parameters :user, include: [:email, :password, :password_confirmation, :username, :age, :birth_place, :date_of_birth, :address, :gender]
   
   def create
     user = User.new(user_params)
@@ -43,18 +44,37 @@ class UsersController < ApplicationController
     user = User.find_by(email: params[:email].to_s.downcase)
 
     if user && user.authenticate(params[:password])
-      if user.confirmed_at?
-        auth_token = JsonWebToken.encode({user_id: user.id})
-        render json: {auth_token: auth_token}, status: :ok
-      else
-        render json: {error: 'Email not verified'}, status: :unauthorized
-      end
+      generate_token(user)
     else
-      render json: {error: 'Invalid username/password'}, status: :unauthorized
+      rate_limit_exceeded?(params[:email])? notify_rate_limit_exceeded : invalid_request
+      @rate_limit_counter.increment
     end
   end
 
+  def generate_token(user)
+    if user.confirmed_at?
+      auth_token = JsonWebToken.encode({user_id: user.id})
+      render json: {auth_token: auth_token}, status: :ok
+    else
+      render json: {error: 'Email not verified'}, status: :unauthorized
+    end
+  end
+
+  def notify_rate_limit_exceeded
+    render json: {error: 'You have fired too many requests. Please try after 5 minutes.'}, status: :too_many_requests
+  end
+
+  def invalid_request
+    render json: {error: 'Invalid username/password'}, status: :unauthorized
+  end
+
+
   private
+
+  def rate_limit_exceeded?(email)
+    @rate_limit_counter = LoginCounter.new(email)
+    @rate_limit_counter.rate_limiting_exceeded?
+  end
 
   def user_params
     params.require(:user).permit(:email, :password, :password_confirmation, :username, :age, :birth_place, :date_of_birth, :address, :gender)

@@ -23,6 +23,7 @@ def invalid_authentication
 end
 
 private
+
 # Deconstructs the Authorization header and decodes the JWT token.
 def payload
   auth_header = request.headers['Authorization']
